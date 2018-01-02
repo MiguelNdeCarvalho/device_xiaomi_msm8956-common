@@ -24,6 +24,8 @@ $(call inherit-product-if-exists, vendor/xiaomi/msm8956-common/msm8956-common-ve
 # include qcom selinux policies
 include device/qcom/sepolicy/sepolicy.mk
 
+#$(call inherit-product-if-exists, frameworks/native/build/phone-xxhdpi-2048-hwui-memory.mk)
+
 # Screen density
 PRODUCT_AAPT_CONFIG := normal
 PRODUCT_AAPT_PREF_CONFIG := xxhdpi

@@ -40,9 +40,6 @@ on early-init
     mount debugfs debugfs /sys/kernel/debug
     chmod 0755 /sys/kernel/debug
 
-    # zram setup
-    write /proc/sys/vm/page-cluster 0
-
 on init
     # Set permissions for persist partition
     mkdir /persist 0771 system system
@@ -82,6 +79,7 @@ on fs
     symlink /dev/block/platform/soc.0/${ro.boot.bootdevice} /dev/block/bootdevice
 
     mount_all fstab.qcom
+    write /proc/sys/vm/swappiness 100
     mkdir /persist/data 0700 system system
     restorecon_recursive /persist
 
@@ -175,7 +173,7 @@ on boot
 
     # Vibrator intensity
     write /sys/class/timed_output/vibrator/vtg_level 1800
-
+  
 on post-fs
     start qseecomd
 
@@ -187,9 +185,7 @@ on post-fs-data
     # we will remap this as /mnt/sdcard with the sdcard fuse tool
     mkdir /data/misc/camera 0770 camera camera
 
-    #create ipacm log dir
-    mkdir /data/vendor/ipa 0770 radio radio
-    chmod 0770 /data/vendor/ipa
+    mkdir /data/misc/ipa 0700 net_admin net_admin
 
     mkdir /data/misc/bluetooth 0770 bluetooth bluetooth
 
@@ -272,9 +268,8 @@ on post-fs-data
     mkdir /data/camera 0770 media camera
 
     #Create PERFD deamon related dirs
-    mkdir /data/vendor/perfd 0770 root system
-    chmod 2770 /data/vendor/perfd
-    rm /data/vendor/perfd/default_values
+    mkdir /data/system/perfd 0770 root system
+    chmod 2770 /data/system/perfd
 
     # Sensor
     mkdir /persist/sensors 0775 system system
@@ -284,9 +279,9 @@ on post-fs-data
     # qti-logkit data
     mkdir /data/misc/qti-logkit/ 0771 system system
     mkdir /data/misc/qti-logkit/shared-privileged/ 2770 system system
-    mkdir /data/misc/qti-logkit/shared-public/ 2770 system oem_2901
+    mkdir /data/misc/qti-logkit/shared-public/ 2770 system qcom_diag
     mkdir /data/misc/qti-logkit/socket-privileged/ 2770 system system
-    mkdir /data/misc/qti-logkit/socket-public/ 2750 system oem_2901
+    mkdir /data/misc/qti-logkit/socket-public/ 2750 system qcom_diag
     mkdir /data/misc/qti-logkit/logdata/ 2750 system shell
 
     # RIDL data
@@ -320,16 +315,27 @@ on post-fs-data
     mkdir /data/misc/dts 0770 media audio
     mkdir /data/misc/audio_pp 0771 media audio
 
+    # Create PERFD deamon related dirs
+    mkdir /data/system/perfd 2770 root system
+    rm /data/system/perfd/default_values
+    # start perfd
+
+    # Sustained power and vr mode
+    chown system system /sys/class/kgsl/kgsl-3d0/devfreq/max_freq
+    chmod 0660 /sys/class/kgsl/kgsl-3d0/devfreq/max_freq
+    chown system system /sys/class/kgsl/kgsl-3d0/devfreq/min_freq
+    chmod 0660 /sys/class/kgsl/kgsl-3d0/devfreq/min_freq
+    chown system system /sys/class/devfreq/gpubw/min_freq
+    chmod 0660 /sys/class/devfreq/gpubw/min_freq
+
 on property:sys.boot_completed=1
     write /dev/kmsg "Boot completed "
 
     # CPE fw_name used by sound trigger HAL
     chown media audio /sys/kernel/wcd_cpe0/fw_name
 
-    # Enable ZRAM on boot_complete
-    swapon_all fstab.qcom
-
 on property:vold.decrypt=trigger_restart_framework
+    start config_bluetooth
     start wcnss-service
     start config_bt_addr
 
@@ -340,33 +346,26 @@ service cnd /system/bin/cnd
     class main
     socket cnd stream 660 root inet
     writepid /dev/cpuset/system-background/tasks
-    seclabel u:r:cnd:s0
 
 service dpmd /system/bin/dpmd
     class late_start
     socket dpmd stream 660 root system
     group system readproc
-    seclabel u:r:dpmd:s0
 
 service irsc_util /system/bin/irsc_util "/etc/sec_config"
     class main
     user root
     oneshot
-    seclabel u:r:irsc_util:s0
 
 service rmt_storage /system/bin/rmt_storage
     class core
     user root
-    group system wakelock
-    shutdown critical
     writepid /dev/cpuset/system-background/tasks
-    seclabel u:r:rmt_storage:s0
 
 service tftp_server /system/bin/tftp_server
     class main
     user root
     writepid /dev/cpuset/system-background/tasks
-    seclabel u:r:rfs_access:s0
 
 on property:wc_transport.start_hci=true
     start start_hci_filter
@@ -377,8 +376,7 @@ on property:wc_transport.start_hci=false
 service start_hci_filter /system/bin/wcnss_filter
     class late_start
     user bluetooth
-    group bluetooth oem_2901
-    seclabel u:r:wcnss_filter:s0
+    group bluetooth qcom_diag
     disabled
 
 on property:wc_transport.start_root=true
@@ -391,7 +389,18 @@ service hci_filter_root /system/bin/wcnss_filter
     class late_start
     user bluetooth
     group bluetooth diag system
-    seclabel u:r:wcnss_filter:s0
+    disabled
+
+on property:wc_transport.start_root=true
+    start hci_filter_root
+
+on property:wc_transport.start_root=false
+    stop hci_filter_root
+
+service hci_filter_root /system/bin/wcnss_filter
+    class late_start
+    user bluetooth
+    group bluetooth diag system
     disabled
 
 service config_bt_addr /system/bin/btnvtool -O
@@ -399,28 +408,29 @@ service config_bt_addr /system/bin/btnvtool -O
     user bluetooth
     group bluetooth radio
     oneshot
-    seclabel u:r:btnvtool:s0
 
-service hciattach /system/bin/hci_qcomm_init -e
+service config_bluetooth /system/bin/sh /system/etc/init.qcom.bt.sh "onboot"
+    class core
+    user root
+    oneshot
+
+service hciattach /system/bin/sh /system/etc/init.qcom.bt.sh
     class late_start
     user bluetooth
-    group bluetooth net_bt_admin oem_2901 diag radio
+    group bluetooth net_bt_admin
     disabled
     oneshot
-    seclabel u:r:bluetooth_loader::s0
 
 on property:bluetooth.hciattach=true
     start hciattach
-    setprop bluetooth.status on
 
 on property:bluetooth.hciattach=false
     setprop bluetooth.status off
 
-service qcom-sh /vendor/bin/sh /vendor/bin/init.qcom.sh
+service qcom-sh /system/bin/sh /init.qcom.sh
     class late_start
     user root
     oneshot
-    seclabel u:r:qti_init_shell:s0
 
 # FM
 on property:hw.fm.init=0
@@ -433,29 +443,37 @@ on property:hw.fm.init=1
 service qmuxd /system/bin/qmuxd
     class main
     user root
-    group radio audio bluetooth gps nfc oem_2901
+    group radio audio bluetooth gps nfc qcom_diag
     writepid /dev/cpuset/system-background/tasks
-    seclabel u:r:qmuxd:s0
 
 service netmgrd /system/bin/netmgrd
     class main
-    group root wifi wakelock radio inet oem_2901
     writepid /dev/cpuset/system-background/tasks
-    seclabel u:r:netmgrd:s0
 
-service ipacm /system/vendor/bin/ipacm
+service ipacm-diag /system/bin/ipacm-diag
+    class main
+    user system
+    socket ipacm_log_file dgram 660 system net_admin
+    group net_admin qcom_diag
+    writepid /dev/cpuset/system-background/tasks
+
+service ipacm /system/bin/ipacm
+    class main
+    user net_admin
+    group net_admin inet
+    writepid /dev/cpuset/system-background/tasks
+
+service qti /system/vendor/bin/qti
     class main
     user radio
-    group radio inet
+    group radio net_raw qcom_diag usb net_admin
     writepid /dev/cpuset/system-background/tasks
-    seclabel u:r:ipacm:s0
 
 service sensors /system/bin/sensors.qcom
     class late_start
     user root
     group root
     disabled
-    seclabel u:r:sensors:s0
 
 on property:ro.use_data_netmgrd=false
     # netmgr not supported on specific target
@@ -488,8 +506,7 @@ service wpa_supplicant /vendor/bin/hw/wpa_supplicant \
 service loc_launcher /system/bin/loc_launcher
     #loc_launcher will start as root and set its uid to gps
     class late_start
-    group gps inet net_raw oem_2901 net_admin wifi
-    seclabel u:r:location:s0
+    group gps inet net_raw qcom_diag net_admin wifi
 
 on property:crypto.driver.load=1
     insmod /system/lib/modules/qce.ko
@@ -505,7 +522,7 @@ service ril-daemon2 /vendor/bin/hw/rild -c 2
     group radio cache inet misc audio log readproc wakelock
     capabilities BLOCK_SUSPEND NET_ADMIN NET_RAW
 
-service charger /sbin/chargeonlymode
+service charger /charger
     class charger
     group system graphics
     seclabel u:r:charger:s0
@@ -516,7 +533,6 @@ service msm_irqbal_lb /system/bin/msm_irqbalance -f /system/vendor/etc/msm_irqba
     group root
     disabled
     writepid /dev/cpuset/system-background/tasks
-    seclabel u:r:msm_irqbalanced:s0
 
 on property:vold.decrypt=trigger_restart_min_framework
     start time_daemon
@@ -527,14 +543,12 @@ service qcamerasvr /system/bin/mm-qcamera-daemon
     user camera
     group camera system inet input graphics
     writepid /dev/cpuset/camera-daemon/tasks
-    seclabel u:r:mm-qcamerad:s0
 
 service qseecomd /system/bin/qseecomd
    class core
    user root
    group root
    writepid /dev/cpuset/system-background/tasks
-   seclabel u:r:tee:s0
 
 service thermal-engine /system/vendor/bin/thermal-engine
    class main
@@ -544,21 +558,23 @@ service thermal-engine /system/vendor/bin/thermal-engine
    socket thermal-recv-passive-client stream 0666 system system
    group root
    writepid /dev/cpuset/system-background/tasks
-   seclabel u:r:thermal-engine:s0
 
 service time_daemon /system/bin/time_daemon
    class late_start
    user root
    group root
    writepid /dev/cpuset/system-background/tasks
-   seclabel u:r:time_daemon:s0
+
+service audiod /system/bin/audiod
+   class late_start
+   user system
+   group system
 
 service wcnss-service /system/bin/wcnss_service
     class late_start
     user system
     group system wifi radio
     oneshot
-    seclabel u:r:wcnss_service:s0
 
 service ppd /system/vendor/bin/mm-pp-daemon
     class late_start
@@ -566,7 +582,6 @@ service ppd /system/vendor/bin/mm-pp-daemon
     user system
     socket pps stream 0660 system system
     group system graphics
-    seclabel u:r:mm-pp-daemon:s0
 
 on property:init.svc.surfaceflinger=stopped
     stop ppd
@@ -588,33 +603,28 @@ on property:init.svc.zygote=restarting
 
 on charger
     start hvdcp_opti
-    start thermal-engine
 
 service adsprpcd /system/bin/adsprpcd
     class main
     user media
     group media
-    seclabel u:r:adsprpcd:s0
 
 service hvdcp_opti /system/bin/hvdcp_opti
     class main
     user root
     group root
-    seclabel u:r:hvdcp:s0
 
 service qseeproxydaemon /system/vendor/bin/qseeproxydaemon
     class late_start
     user system
     group system
     writepid /dev/cpuset/system-background/tasks
-    seclabel u:r:qseeproxy:s0
 
 service per_mgr /system/bin/pm-service
     class core
     user system
     group system net_raw
     writepid /dev/cpuset/system-background/tasks
-    seclabel u:r:per_mgr:s0
 
 service per_proxy /system/bin/pm-proxy
     class core
@@ -622,7 +632,6 @@ service per_proxy /system/bin/pm-proxy
     group system
     disabled
     writepid /dev/cpuset/system-background/tasks
-    seclabel u:r:per_mgr:s0
 
 on property:init.svc.per_mgr=running
     start per_proxy
@@ -635,7 +644,6 @@ service imsqmidaemon /system/bin/imsqmidaemon
     user system
     socket ims_qmid stream 0660 system radio
     group radio log diag
-    seclabel u:r:ims:s0
 
 service imsdatadaemon /system/bin/imsdatadaemon
     class main
@@ -643,7 +651,6 @@ service imsdatadaemon /system/bin/imsdatadaemon
     socket ims_datad stream 0660 system radio
     group system wifi radio inet log diag
     disabled
-    seclabel u:r:ims:s0
 
 on property:sys.ims.QMI_DAEMON_STATUS=1
     start imsdatadaemon
@@ -654,14 +661,12 @@ service ims_rtp_daemon /system/bin/ims_rtp_daemon
     socket ims_rtpd stream 0660 system radio
     group radio diag inet log
     disabled
-    seclabel u:r:hal_imsrtp:s0
 
 service imscmservice /system/bin/imscmservice
     class main
     user system
     group radio diag inet log
     disabled
-    seclabel u:r:ims:s0
 
 on property:sys.ims.DATA_DAEMON_STATUS=1
     start ims_rtp_daemon

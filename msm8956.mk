@@ -122,8 +122,7 @@ PRODUCT_PACKAGES += \
     libqomx_core \
     libmm-qcamera \
     camera.device@1.0-impl \
-    android.hardware.camera.provider@2.4-impl \
-    Snap
+    android.hardware.camera.provider@2.4-impl
 
 # Connectivity Engine support (CNE)
 PRODUCT_PACKAGES += \
@@ -154,9 +153,10 @@ PRODUCT_PACKAGES += \
     hwcomposer.msm8952 \
     memtrack.msm8952
 
-# Doze mode
+# Face detection extension
 PRODUCT_PACKAGES += \
-    XiaomiDoze
+    org.codeaurora.camera
+
 
 # Fingerprint
 PRODUCT_PACKAGES += \

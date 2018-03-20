@@ -272,6 +272,11 @@ PRODUCT_PACKAGES += \
     libOmxVenc \
     libstagefrighthw
 
+# OTA Updates
+PRODUCT_PACKAGES += \
+	OTAUpdates \
+    libbypass
+
 # Power
 PRODUCT_PACKAGES += \
     android.hardware.power@1.0-service-qti

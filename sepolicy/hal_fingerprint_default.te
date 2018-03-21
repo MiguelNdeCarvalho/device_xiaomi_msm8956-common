@@ -5,5 +5,6 @@ allow hal_fingerprint_default firmware_file:file { r_file_perms };
 allow hal_fingerprint_default fpc_data_file:dir rw_dir_perms;
 allow hal_fingerprint_default fpc_data_file:sock_file create_file_perms;
 allow hal_fingerprint_default uhid_device:chr_file rw_file_perms;
+add_service(hal_fingerprint_default, fingerprintd_custom_service);
 
 binder_call(hal_fingerprint_default, servicemanager)
